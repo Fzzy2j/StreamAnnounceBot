@@ -63,9 +63,7 @@ object StreamScanner : Thread() {
 
                     val msg =
                         "${requestStream.getString("title")} https://www.twitch.tv/${requestStream.getString("user_name")}"
-                    RequestBuffer.request {
-                        if (broadcastChannelId != null) cli.getChannelByID(broadcastChannelId!!).sendMessage(msg)
-                    }
+                    RequestBuffer.request { cli.getChannelByID(broadcastChannelId).sendMessage(msg) }
                     Discord4J.LOGGER.info("${requestStream.getString("user_name")} is now live.")
                 }
             }
