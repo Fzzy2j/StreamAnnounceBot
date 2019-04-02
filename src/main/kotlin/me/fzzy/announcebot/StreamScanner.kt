@@ -10,62 +10,60 @@ import sx.blah.discord.util.RequestBuffer
 
 object StreamScanner : Thread() {
 
-    private var activeStreams = hashMapOf<Long, JSONObject>()
+    var activeStreams = arrayListOf<Stream>()
 
     private val speedRunTagId = "7cefbf30-4c3e-4aa7-99cd-70aabb662f27"
     private val tf2Id = "489201"
 
     override fun run() {
         while (true) {
-            Thread.sleep(3 * 60 * 1000)
+            try {
+                Thread.sleep(60 * 1000)
 
-            var json = getTitanfallRequest()
-            var array = json.getJSONArray("data")
+                var json = getTitanfallRequest()
+                var array = json.getJSONArray("data")
 
-            // Storing all the pages of streams
-            val requestStreams = hashMapOf<Long, JSONObject>()
+                // Storing all the pages of streams
+                val requestStreams = hashMapOf<Long, Stream>()
 
-            for (i in 0 until array.length())
-                requestStreams[array.getJSONObject(i).getLong("user_id")] = array.getJSONObject(i)
-
-            while (json.getJSONObject("pagination").has("cursor")) {
-                json = getTitanfallRequest(json.getJSONObject("pagination").getString("cursor"))
-                array = json.getJSONArray("data")
                 for (i in 0 until array.length())
-                    requestStreams[array.getJSONObject(i).getLong("user_id")] = array.getJSONObject(i)
-            }
+                    requestStreams[array.getJSONObject(i).getLong("user_id")] = Stream(array.getJSONObject(i))
 
-            // Remove inactive streams
-            val iterator = activeStreams.iterator()
-            while (iterator.hasNext()) {
-                val entry = iterator.next()
-                if (!requestStreams.containsKey(entry.key)) {
-                    Discord4J.LOGGER.info("${entry.value.getString("user_name")} is no longer live.")
-                    iterator.remove()
+                while (json.getJSONObject("pagination").has("cursor")) {
+                    json = getTitanfallRequest(json.getJSONObject("pagination").getString("cursor"))
+                    array = json.getJSONArray("data")
+                    for (i in 0 until array.length())
+                        requestStreams[array.getJSONObject(i).getLong("user_id")] = Stream(array.getJSONObject(i))
                 }
-            }
 
-            // Add new streams and broadcast them
-            for (requestStream in requestStreams.values) {
-                if (!activeStreams.contains(requestStream.getLong("user_id"))) {
-                    try {
-                        val tags = requestStream.getJSONArray("tag_ids")
-                        var isSpeedrun = false
-                        for (i in 0 until tags.length()) {
-                            if (tags.getString(i) == speedRunTagId) isSpeedrun = true
-                        }
-                        if (!isSpeedrun) continue
-                    } catch (e: Exception) {
-                        continue
+                // Remove inactive streams
+                val iterator = activeStreams.iterator()
+                while (iterator.hasNext()) {
+                    val entry = iterator.next()
+                    if (!requestStreams.containsKey(entry.userId) || !entry.tags.contains(speedRunTagId)) {
+                        Discord4J.LOGGER.info("${entry.username} is no longer live.")
+                        iterator.remove()
                     }
-
-                    activeStreams[requestStream.getLong("user_id")] = requestStream
-
-                    val msg =
-                        "${requestStream.getString("title")} https://www.twitch.tv/${requestStream.getString("user_name")}"
-                    RequestBuffer.request { cli.getChannelByID(broadcastChannelId).sendMessage(msg) }
-                    Discord4J.LOGGER.info("${requestStream.getString("user_name")} is now live.")
                 }
+
+                // Add new streams and broadcast them
+                for (requestStream in requestStreams.values) {
+                    if (!activeStreams.contains(requestStream)) {
+                        if (requestStream.tags.size == 0 || !requestStream.tags.contains(speedRunTagId)) continue
+
+                        activeStreams.add(requestStream)
+
+                        val msg = "${requestStream.title} https://www.twitch.tv/${requestStream.username}"
+                        RequestBuffer.request { cli.getChannelByID(broadcastChannelId).sendMessage(msg) }
+                        Discord4J.LOGGER.info("${requestStream.username} is now live.")
+                    }
+                }
+
+                // Save the active streams
+                saveStreams(activeStreams)
+            } catch (e: Exception) {
+                Discord4J.LOGGER.info("Error while trying to scan streams:")
+                e.printStackTrace()
             }
         }
     }
