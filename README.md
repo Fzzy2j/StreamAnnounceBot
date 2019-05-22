@@ -2,8 +2,9 @@
 
 You must have java installed on your machine to run the bot, once you do just double click on start.bat in the run folder and watch the console.
 
-To get the bot in your server you must use this link, replacing <CLIENT_ID> with the client id listed on your discord application page
-https://discordapp.com/oauth2/authorize?client_id=<CLIENT_ID>&scope=bot
+To get the bot in your server you must use this link, replacing (CLIENT_ID) with the client id listed on your discord application page
+
+https://discordapp.com/oauth2/authorize?client_id=(CLIENT_ID)&scope=bot
 
 ## Config setup
 
