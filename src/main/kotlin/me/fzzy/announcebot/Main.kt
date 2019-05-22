@@ -34,9 +34,9 @@ lateinit var config: Config
 fun main() {
 
     fun configReq() {
-        Discord4J.LOGGER.error("====================================================================================================================================")
+        Discord4J.LOGGER.error("===================================")
         Discord4J.LOGGER.error("For this bot to work you must set values in config.json, instructions can be found here: https://github.com/Fzzy2j/StreamAnnounceBot")
-        Discord4J.LOGGER.error("====================================================================================================================================")
+        Discord4J.LOGGER.error("===================================")
         System.exit(0)
     }
 
