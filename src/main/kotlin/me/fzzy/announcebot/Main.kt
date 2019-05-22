@@ -20,7 +20,7 @@ val gson = Gson()
 
 val streamsFile = File("streams.json")
 
-val speedRunTagId = "7cefbf30-4c3e-4aa7-99cd-70aabb662f27"
+const val speedRunTagId = "7cefbf30-4c3e-4aa7-99cd-70aabb662f27"
 
 class Config {
     val broadcastChannelId = 0L
