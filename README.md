@@ -1,3 +1,7 @@
+## Running the bot
+
+You must have java installed on your machine to run the bot, once you do just double click on start.bat in the run folder and watch the console.
+
 ## Config setup
 
 ### game
