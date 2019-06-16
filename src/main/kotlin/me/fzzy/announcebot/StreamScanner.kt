@@ -1,39 +1,39 @@
 package me.fzzy.announcebot
 
+import discord4j.core.`object`.entity.TextChannel
+import discord4j.core.`object`.util.Snowflake
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.utils.URIBuilder
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
 import org.json.JSONObject
-import sx.blah.discord.Discord4J
-import sx.blah.discord.handle.obj.IChannel
-import sx.blah.discord.util.RequestBuffer
 
 object StreamScanner : Thread() {
 
     var activeStreams = arrayListOf<Stream>()
-    var broadcastChannel: IChannel? = null
+    var broadcastChannel: TextChannel? = null
 
     override fun run() {
-        broadcastChannel = cli.getChannelByID(config.broadcastChannelId)
+        broadcastChannel = cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block() as TextChannel?
         if (broadcastChannel == null) {
-            Discord4J.LOGGER.error("Could not retrieve broadcast channel, did you enter the correct id in the config?")
+            log.error("Could not retrieve broadcast channel, did you enter the correct id in the config?")
             System.exit(0)
             return
         }
         val gameId = try {
             getGameIdRequest(config.game)
         } catch(e: Exception) {
-            Discord4J.LOGGER.error("Could not retrieve game id from twitch, is the game name exactly as it is on the twitch directory?")
+            log.error("Could not retrieve game id from twitch, is the game name exactly as it is on the twitch directory?")
             e.printStackTrace()
             System.exit(0)
             return
         }
-        Discord4J.LOGGER.info("Game id found: $gameId")
-        Discord4J.LOGGER.info("Scanning has commenced.")
+        log.info("Game id found: $gameId")
+        log.info("Scanning has commenced.")
         while (true) {
+            var json: JSONObject? = null
             try {
-                var json = getStreamsRequest(gameId)
+                json = getStreamsRequest(gameId)
                 var array = json.getJSONArray("data")
 
                 // Storing all the pages of streams
@@ -43,8 +43,8 @@ object StreamScanner : Thread() {
                 for (i in 0 until array.length())
                     requestStreams[array.getJSONObject(i).getLong("user_id")] = Stream(array.getJSONObject(i))
 
-                while (json.getJSONObject("pagination").has("cursor")) {
-                    sleep(3000)
+                while (json!!.getJSONObject("pagination")!!.has("cursor")) {
+                    sleep(30 * 1000)
                     json = getStreamsRequest(gameId, json.getJSONObject("pagination").getString("cursor"))
                     array = json.getJSONArray("data")
                     for (i in 0 until array.length())
@@ -56,7 +56,7 @@ object StreamScanner : Thread() {
                 while (iterator.hasNext()) {
                     val entry = iterator.next()
                     if (!requestStreams.containsKey(entry.userId) || !entry.tags.contains(speedRunTagId)) {
-                        Discord4J.LOGGER.info("${entry.username} is no longer live.")
+                        log.info("${entry.username} is no longer live.")
                         iterator.remove()
                     }
                 }
@@ -69,17 +69,20 @@ object StreamScanner : Thread() {
                         activeStreams.add(requestStream)
 
                         val msg = "${requestStream.title} https://www.twitch.tv/${requestStream.username}"
-                        RequestBuffer.request { broadcastChannel?.sendMessage(msg) }
-                        Discord4J.LOGGER.info("${requestStream.username} is now live.")
+                        broadcastChannel?.createMessage(msg)?.block()
+                        log.info("${requestStream.username} is now live.")
                     }
                 }
 
                 // Save the active streams
                 saveStreams(activeStreams)
 
-                sleep(60 * 1000)
+                sleep(60 * 1000 * 3)
             } catch (e: Exception) {
-                Discord4J.LOGGER.info("Error while trying to scan streams:")
+                if (json != null) {
+                    log.error(json.toString(2))
+                }
+                log.error("Error while trying to scan streams:")
                 e.printStackTrace()
             }
         }
