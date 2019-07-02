@@ -45,6 +45,8 @@ class Config {
 lateinit var config: Config
 
 var activeStreams = arrayListOf<Stream>()
+val requestStreams = hashMapOf<Long, Stream>()
+
 var pagination: String? = null
 
 val scheduler = Schedulers.elastic()
@@ -103,7 +105,6 @@ fun main() {
             json = getStreamsRequest(gameId, pagination)
 
             val array = json.getJSONArray("data")
-            val requestStreams = hashMapOf<Long, Stream>()
 
             // Storing all the pages of streams
             for (i in 0 until array.length())
@@ -140,6 +141,7 @@ fun main() {
                         iterator.remove()
                     }
                 }
+                requestStreams.clear()
             }
 
             // Save the active streams
