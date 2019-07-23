@@ -23,6 +23,8 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalUnit
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
@@ -119,7 +121,18 @@ fun main() {
 
                     val msg = "${requestStream.title} https://www.twitch.tv/${requestStream.username}"
                     scheduler.schedule {
-                        (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel).createMessage(msg).block()
+                        val channel = (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
+                        val recent = channel.getMessagesBefore(channel.lastMessageId.get()).take(5).collectList().block()!!
+                        var shouldSend = true
+                        for (message in recent) {
+                            val isOld = message.timestamp.isBefore(message.timestamp.minus(1, ChronoUnit.HOURS))
+                            if (message.content.get().contains("https://www.twitch.tv/${requestStream.username}") && !isOld) {
+                                log.info("${requestStream.username} was broadcasted recently so message was not sent")
+                                shouldSend = false
+                                break
+                            }
+                        }
+                        if (shouldSend) channel.createMessage(msg).block()
                     }
                     log.info("${requestStream.username} is now live.")
                 }
