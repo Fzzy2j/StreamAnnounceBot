@@ -9,6 +9,8 @@ class Stream {
     var tags: ArrayList<String>
     var title: String
 
+    var offlineTimestamp: Long = -1
+
     constructor(title: String, username: String, userId: Long, tags: ArrayList<String>) {
         this.userId = userId
         this.username = username

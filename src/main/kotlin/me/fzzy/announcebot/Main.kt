@@ -23,6 +23,8 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
+import java.lang.RuntimeException
+import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalUnit
 import java.util.concurrent.TimeUnit
@@ -121,11 +123,12 @@ fun main() {
 
                     val msg = "${requestStream.title} https://www.twitch.tv/${requestStream.username}"
                     scheduler.schedule {
-                        val channel = (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
+                        val channel =
+                            (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
                         channel.createMessage(msg).block()
+                        log.info("${requestStream.username} is now live.")
                     }
-                    log.info("${requestStream.username} is now live.")
-                }
+                } else requestStream.offlineTimestamp = -1
             }
 
             if (json.getJSONObject("pagination")!!.has("cursor")) {
@@ -135,16 +138,25 @@ fun main() {
                 // Last page of requests
                 pagination = null
 
-                // Remove inactive streams
-                val iterator = activeStreams.iterator()
-                while (iterator.hasNext()) {
-                    val entry = iterator.next()
-                    if (!requestStreams.containsKey(entry.userId) || !entry.tags.contains(speedRunTagId)) {
-                        log.info("${entry.username} is no longer live.")
-                        iterator.remove()
+                // Mark inactive streams
+                for (stream in activeStreams) {
+                    if ((!requestStreams.containsKey(stream.userId) || !stream.tags.contains(speedRunTagId)) && stream.offlineTimestamp == -1L) {
+                        log.info("${stream.username} is no longer live.")
+                        stream.offlineTimestamp = System.currentTimeMillis()
                     }
                 }
                 requestStreams.clear()
+            }
+
+            // Remove old inactive streams
+            val iterator = activeStreams.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.offlineTimestamp == -1L) continue
+                if (System.currentTimeMillis() - entry.offlineTimestamp > 1000 * 60 * 60) {
+                    log.info("${entry.username} can now be announced again.")
+                    iterator.remove()
+                }
             }
 
             // Save the active streams
