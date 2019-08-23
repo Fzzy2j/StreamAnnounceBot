@@ -25,3 +25,7 @@ Create a new application, and make it a bot user, then use the token provided
 ### broadcastChannelId
 You can get your channel id by turning on developer mode in discord under appearance, then right clicking on the text channel you want
 the broadcasts to go in and clicking "Copy ID"
+
+## Blacklist
+
+Either the owner of the bot or anybody in the broadcast channels server with the "manage server" permission can dm the bot the word "blacklist" and see the commands associated with the blacklist
