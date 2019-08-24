@@ -6,9 +6,12 @@ import com.google.gson.stream.JsonReader
 import discord4j.core.DiscordClient
 import discord4j.core.DiscordClientBuilder
 import discord4j.core.`object`.entity.Channel
+import discord4j.core.`object`.entity.PrivateChannel
 import discord4j.core.`object`.entity.TextChannel
+import discord4j.core.`object`.util.Permission
 import discord4j.core.`object`.util.Snowflake
 import discord4j.core.event.domain.lifecycle.ReadyEvent
+import discord4j.core.event.domain.message.MessageCreateEvent
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.utils.URIBuilder
 import org.apache.http.impl.client.HttpClients
@@ -24,6 +27,7 @@ import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
 import java.lang.RuntimeException
+import java.lang.StringBuilder
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalUnit
@@ -44,6 +48,7 @@ class Config {
     val game = ""
     val discordToken = ""
     val twitchToken = ""
+    val broadcastCooldownMinutes = 60
 }
 
 lateinit var config: Config
@@ -52,6 +57,8 @@ var activeStreams = arrayListOf<Stream>()
 val requestStreams = hashMapOf<Long, Stream>()
 
 var pagination: String? = null
+
+var blacklist = arrayListOf<String>()
 
 val scheduler = Schedulers.elastic()
 
@@ -73,6 +80,12 @@ fun main() {
         bufferWriter.close()
 
         configReq()
+    }
+
+    val blacklistFile = File("blacklist.json")
+    if (blacklistFile.exists()) {
+        val token = object : TypeToken<List<String>>() {}
+        blacklist = gson.fromJson(JsonReader(InputStreamReader(blacklistFile.inputStream())), token.type)
     }
 
     try {
@@ -103,6 +116,73 @@ fun main() {
     }
     log.info("Game id found: $gameId")
 
+    //Blacklist Command
+    cli.eventDispatcher.on(MessageCreateEvent::class.java).subscribe { event ->
+        run {
+            val channel = (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
+            val member = channel.guild.block()!!.getMemberById(event.message.author.get().id).block()
+
+            if (member != null) {
+                if (member.basePermissions.block()!!.contains(Permission.MANAGE_GUILD) || cli.applicationInfo.block()!!.ownerId == member.id && event.message.channel.block() is PrivateChannel) {
+                    val content = event.message.content.orElse("")
+                    fun helpMsg() {
+                        event.message.channel.flatMap {
+                            it.createMessage(
+                                "```md\n" +
+                                        "# blacklist add {username} - adds a twitch user to the blacklist\n" +
+                                        "# blacklist remove {username} - removes a twitch user from the blacklist\n" +
+                                        "# blacklist list - lists currently blacklisted twitch users\n" +
+                                        "```"
+                            )
+                        }.block()
+                    }
+                    if (content.startsWith("blacklist")) {
+                        val args = content.split(" ")
+                        if (args.size == 1) {
+                            helpMsg()
+                        } else {
+                            if (args[1] == "add") {
+                                try {
+                                    if (!blacklist.contains(args[2].toLowerCase())) {
+                                        blacklist.add(args[2].toLowerCase())
+                                        saveBlacklist()
+                                        log.info("${args[2].toLowerCase()} was added to the blacklist")
+                                        event.message.channel.flatMap { it.createMessage("${args[2].toLowerCase()} added to the blacklist") }
+                                            .block()
+                                    } else event.message.channel.flatMap { it.createMessage("${args[2].toLowerCase()} is already on the blacklist!") }.block()
+                                } catch (e: IndexOutOfBoundsException) {
+                                    helpMsg()
+                                }
+                            }
+                            if (args[1] == "remove") {
+                                try {
+                                    if (blacklist.contains(args[2].toLowerCase())) {
+                                        blacklist.remove(args[2].toLowerCase())
+                                        saveBlacklist()
+                                        log.info("${args[2].toLowerCase()} was removed from the blacklist")
+                                        event.message.channel.flatMap { it.createMessage("${args[2].toLowerCase()} removed from the blacklist") }
+                                            .block()
+                                    } else event.message.channel.flatMap { it.createMessage("${args[2].toLowerCase()} isnt on the blacklist!") }.block()
+                                } catch (e: IndexOutOfBoundsException) {
+                                    helpMsg()
+                                }
+                            }
+                            if (args[1] == "list") {
+                                event.message.channel.flatMap {
+                                    val builder = StringBuilder("```\n")
+                                    for (banned in blacklist) {
+                                        builder.append("$banned\n")
+                                    }
+                                    it.createMessage(builder.append("```").toString())
+                                }.block()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     scheduler.schedulePeriodically({
         var json: JSONObject? = null
         try {
@@ -125,8 +205,12 @@ fun main() {
                     scheduler.schedule {
                         val channel =
                             (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
-                        channel.createMessage(msg).block()
-                        log.info("${requestStream.username} is now live.")
+                        if (blacklist.contains(requestStream.username.toLowerCase())) {
+                            log.info("${requestStream.username} went live but was ignored because they are on the blacklist.")
+                        } else {
+                            channel.createMessage(msg).block()
+                            log.info("${requestStream.username} is now live.")
+                        }
                     }
                 } else requestStream.offlineTimestamp = -1
             }
@@ -153,7 +237,7 @@ fun main() {
             while (iterator.hasNext()) {
                 val entry = iterator.next()
                 if (entry.offlineTimestamp == -1L) continue
-                if (System.currentTimeMillis() - entry.offlineTimestamp > 1000 * 60 * 60) {
+                if (System.currentTimeMillis() - entry.offlineTimestamp > 1000 * 60 * config.broadcastCooldownMinutes) {
                     log.info("${entry.username} can now be announced again.")
                     iterator.remove()
                 }
@@ -172,6 +256,14 @@ fun main() {
 
     log.info("Logging in.")
     cli.login().block()
+}
+
+fun saveBlacklist() {
+    val file = File("blacklist.json")
+    val bufferWriter = BufferedWriter(FileWriter(file.absoluteFile, false))
+    val save = JSONArray(gson.toJson(blacklist))
+    bufferWriter.write(save.toString(2))
+    bufferWriter.close()
 }
 
 fun saveStreams(streams: ArrayList<Stream>) {
