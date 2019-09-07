@@ -5,10 +5,7 @@ import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
 import discord4j.core.DiscordClient
 import discord4j.core.DiscordClientBuilder
-import discord4j.core.`object`.entity.Channel
-import discord4j.core.`object`.entity.PrivateChannel
-import discord4j.core.`object`.entity.Role
-import discord4j.core.`object`.entity.TextChannel
+import discord4j.core.`object`.entity.*
 import discord4j.core.`object`.presence.Activity
 import discord4j.core.`object`.presence.Presence
 import discord4j.core.`object`.util.Permission
@@ -44,8 +41,6 @@ val log: Logger = Loggers.getLogger("StreamAnnounce")
 
 val gson = Gson()
 
-val streamsFile = File("streams.json")
-
 const val speedRunTagId = "7cefbf30-4c3e-4aa7-99cd-70aabb662f27"
 
 class Config {
@@ -62,16 +57,12 @@ class Config {
 
 lateinit var config: Config
 
-var activeStreams = arrayListOf<Stream>()
-val requestStreams = hashMapOf<Long, Stream>()
-
-var pagination: String? = null
-
+var gameId: Int = 0
 var blacklist = arrayListOf<String>()
-
 val scheduler: Scheduler = Schedulers.elastic()
-
 val streamingPresenceUsers: HashMap<String, Snowflake> = hashMapOf()
+
+var scanner = StreamScanner()
 
 fun main() {
 
@@ -111,14 +102,7 @@ fun main() {
 
     cli = DiscordClientBuilder(config.discordToken).build()
 
-    log.info("Starting Scanner...")
-
-    val token = object : TypeToken<List<Stream>>() {}
-    if (streamsFile.exists())
-        activeStreams =
-            gson.fromJson(JsonReader(InputStreamReader(streamsFile.inputStream())), token.type)
-
-    val gameId = try {
+    gameId = try {
         getGameIdRequest(config.game)
     } catch (e: Exception) {
         log.error("Could not retrieve game id from twitch, is the game name exactly as it is on the twitch directory?")
@@ -143,19 +127,13 @@ fun main() {
             val username = split[split.size - 1].toLowerCase()
             streamingPresenceUsers[username] = event.userId
         } else {
-            val channel =
-                (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
-            if (event.guildId == channel.guildId) {
-                cli.getMemberById(channel.guildId, event.userId)
-                    .flatMap { member ->
-                        val roles = member.roleIds
-                        roles.remove(Snowflake.of(config.liveRoleId))
-                        member.edit { spec ->
-                            spec.setRoles(roles)
-                        }
-                    }.subscribe()
+            val iter = streamingPresenceUsers.iterator()
+            while (iter.hasNext()) {
+                val p = iter.next()
+                if (p.value == event.userId) iter.remove()
             }
         }
+        handleRole(event.userId)
     }
 
     //Blacklist Command
@@ -229,119 +207,46 @@ fun main() {
         }
     }
 
-    scheduler.schedulePeriodically({
-        var json: JSONObject? = null
-        try {
-            json = getStreamsRequest(gameId, pagination)
-
-            val array = json.getJSONArray("data")
-
-            // Each run stores the next page in the requestStreams variable
-            for (i in 0 until array.length())
-                requestStreams[array.getJSONObject(i).getLong("user_id")] = Stream(array.getJSONObject(i))
-
-            // Add new streams and broadcast them
-            for (requestStream in requestStreams.values) {
-                if (!activeStreams.contains(requestStream)) {
-                    if (requestStream.tags.size == 0 || !requestStream.tags.contains(speedRunTagId)) continue
-
-                    activeStreams.add(requestStream)
-
-                    val msg = "${requestStream.title} https://www.twitch.tv/${requestStream.username}"
-                    scheduler.schedule {
-                        val channel =
-                            (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
-                        if (blacklist.contains(requestStream.username.toLowerCase())) {
-                            log.info("${requestStream.username} went live but was ignored because they are on the blacklist.")
-                            requestStream.offlineTimestamp = -1
-                        } else {
-                            channel.createMessage(msg).block()
-                            log.info("${requestStream.username} is now live.")
-                            if (config.liveRoleId != 0L && streamingPresenceUsers.containsKey(requestStream.username.toLowerCase())) {
-                                cli.getMemberById(
-                                    channel.guildId,
-                                    streamingPresenceUsers[requestStream.username.toLowerCase()]!!
-                                ).subscribe { member ->
-                                    val roles = member.roleIds
-                                    if (roles.contains(Snowflake.of(config.liveRoleRequirementRoleId))) {
-                                        roles.add(Snowflake.of(config.liveRoleId))
-                                        member.edit { spec ->
-                                            spec.setRoles(roles)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (json.getJSONObject("pagination")!!.has("cursor")) {
-                // Scrolling through pages
-                pagination = json.getJSONObject("pagination").getString("cursor")
-            } else {
-                // Last page of requests
-                pagination = null
-
-                // Mark inactive streams
-                for (stream in activeStreams) {
-                    if ((!requestStreams.containsKey(stream.userId) || !stream.tags.contains(speedRunTagId)) && stream.offlineTimestamp == -1L) {
-                        log.info("${stream.username} is no longer live.")
-                        stream.offlineTimestamp = System.currentTimeMillis()
-                        if (config.liveRoleId != 0L && streamingPresenceUsers.containsKey(stream.username.toLowerCase())) {
-                            val channel =
-                                (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
-                            cli.getMemberById(channel.guildId, streamingPresenceUsers[stream.username.toLowerCase()]!!)
-                                .flatMap { member ->
-                                    val roles = member.roleIds
-                                    roles.remove(Snowflake.of(config.liveRoleId))
-                                    member.edit { spec ->
-                                        spec.setRoles(roles)
-                                    }
-                                }.subscribe()
-                        }
-                    }
-                }
-                requestStreams.clear()
-            }
-
-            // Remove old inactive streams
-            val iterator = activeStreams.iterator()
-            while (iterator.hasNext()) {
-                val entry = iterator.next()
-                if (entry.offlineTimestamp == -1L) continue
-                if (System.currentTimeMillis() - entry.offlineTimestamp > 1000 * 60 * config.broadcastCooldownMinutes) {
-                    log.info("${entry.username} can now be announced again.")
-                    iterator.remove()
-                }
-            }
-
-            // Save the active streams
-            saveStreams(activeStreams)
-        } catch (e: Exception) {
-            if (json != null) {
-                log.error(json.toString(2))
-            }
-            log.error("Error while trying to scan streams:")
-            e.printStackTrace()
-        }
-    }, 10, 60, TimeUnit.SECONDS)
-
     log.info("Logging in.")
     cli.login().block()
+}
+
+fun handleRole(userId: Snowflake) {
+    if (config.liveRoleId == 0L) return
+
+    val isLive = Stream.getStream(userId)?.isOnline() ?: false
+    val isStreaming = streamingPresenceUsers.containsValue(userId)
+    cli.getChannelById(Snowflake.of(config.broadcastChannelId)).flatMap { channel ->
+        cli.getMemberById((channel as TextChannel).guildId, userId)
+    }.onErrorResume { Mono.empty() }.subscribe { member ->
+        if (member != null) {
+            if (isLive && isStreaming) {
+                val roles = member.roleIds
+                if (config.liveRoleRequirementRoleId != 0L && roles.contains(Snowflake.of(config.liveRoleRequirementRoleId))) {
+                    roles.add(Snowflake.of(config.liveRoleId))
+                    member.edit { spec ->
+                        spec.setRoles(roles)
+                    }.subscribe()
+                }
+            } else {
+                val roles = member.roleIds
+                roles.remove(Snowflake.of(config.liveRoleId))
+                member.edit { spec ->
+                    spec.setRoles(roles)
+                }.subscribe()
+            }
+        }
+    }
+}
+
+fun handleRole(username: String) {
+    if (streamingPresenceUsers.containsKey(username)) handleRole(streamingPresenceUsers[username]!!)
 }
 
 fun saveBlacklist() {
     val file = File("blacklist.json")
     val bufferWriter = BufferedWriter(FileWriter(file.absoluteFile, false))
     val save = JSONArray(gson.toJson(blacklist))
-    bufferWriter.write(save.toString(2))
-    bufferWriter.close()
-}
-
-fun saveStreams(streams: ArrayList<Stream>) {
-    val bufferWriter = BufferedWriter(FileWriter(streamsFile.absoluteFile, false))
-    val save = JSONArray(gson.toJson(streams))
     bufferWriter.write(save.toString(2))
     bufferWriter.close()
 }
@@ -354,16 +259,6 @@ fun getGameIdRequest(name: String): Int {
     val response = HttpClients.createDefault().execute(http)
     val json = JSONObject(EntityUtils.toString(response.entity))
     return json.getJSONArray("data").getJSONObject(0).getInt("id")
-}
-
-fun getStreamsRequest(gameId: Int, pagination: String? = null): JSONObject {
-    val uriBuilder = URIBuilder("https://api.twitch.tv/helix/streams").addParameter("game_id", gameId.toString())
-    if (pagination != null) uriBuilder.addParameter("after", pagination)
-    val uri = uriBuilder.build()
-    val http = HttpGet(uri)
-    http.addHeader("Client-ID", config.twitchToken)
-    val response = HttpClients.createDefault().execute(http)
-    return JSONObject(EntityUtils.toString(response.entity))
 }
 
 fun getTagRequest(broadcasterId: Long): JSONObject {
