@@ -7,9 +7,13 @@ import discord4j.core.DiscordClient
 import discord4j.core.DiscordClientBuilder
 import discord4j.core.`object`.entity.Channel
 import discord4j.core.`object`.entity.PrivateChannel
+import discord4j.core.`object`.entity.Role
 import discord4j.core.`object`.entity.TextChannel
+import discord4j.core.`object`.presence.Activity
+import discord4j.core.`object`.presence.Presence
 import discord4j.core.`object`.util.Permission
 import discord4j.core.`object`.util.Snowflake
+import discord4j.core.event.domain.PresenceUpdateEvent
 import discord4j.core.event.domain.lifecycle.ReadyEvent
 import discord4j.core.event.domain.message.MessageCreateEvent
 import org.apache.http.client.methods.HttpGet
@@ -19,6 +23,7 @@ import org.apache.http.util.EntityUtils
 import org.json.JSONArray
 import org.json.JSONObject
 import reactor.core.publisher.Mono
+import reactor.core.scheduler.Scheduler
 import reactor.core.scheduler.Schedulers
 import reactor.util.Logger
 import reactor.util.Loggers
@@ -49,6 +54,10 @@ class Config {
     val discordToken = ""
     val twitchToken = ""
     val broadcastCooldownMinutes = 60
+    val presence = ""
+    val presenceType = 0
+    val liveRoleId = 0L
+    val liveRoleRequirementRoleId = 0L
 }
 
 lateinit var config: Config
@@ -60,7 +69,9 @@ var pagination: String? = null
 
 var blacklist = arrayListOf<String>()
 
-val scheduler = Schedulers.elastic()
+val scheduler: Scheduler = Schedulers.elastic()
+
+val streamingPresenceUsers: HashMap<String, Snowflake> = hashMapOf()
 
 fun main() {
 
@@ -116,11 +127,46 @@ fun main() {
     }
     log.info("Game id found: $gameId")
 
+    // Set presence
+    val presence = when (config.presenceType) {
+        0 -> Presence.online(Activity.playing(config.presence))
+        1 -> Presence.online(Activity.listening(config.presence))
+        2 -> Presence.online(Activity.watching(config.presence))
+        else -> Presence.online()
+    }
+    cli.updatePresence(presence).block()
+
+    // Keep track of users that have the streaming presence
+    cli.eventDispatcher.on(PresenceUpdateEvent::class.java).subscribe { event ->
+        if (event.current.activity.isPresent && event.current.activity.get().type == Activity.Type.STREAMING) {
+            val split = event.current.activity.get().streamingUrl.get().split("/")
+            val username = split[split.size - 1].toLowerCase()
+            streamingPresenceUsers[username] = event.userId
+        } else {
+            val channel =
+                (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
+            if (event.guildId == channel.guildId) {
+                cli.getMemberById(channel.guildId, event.userId)
+                    .flatMap { member ->
+                        val roles = member.roleIds
+                        roles.remove(Snowflake.of(config.liveRoleId))
+                        member.edit { spec ->
+                            spec.setRoles(roles)
+                        }
+                    }.subscribe()
+            }
+        }
+    }
+
     //Blacklist Command
     cli.eventDispatcher.on(MessageCreateEvent::class.java).subscribe { event ->
         run {
             val channel = (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
-            val member = channel.guild.block()!!.getMemberById(event.message.author.get().id).block()
+            val member = try {
+                channel.guild.block()!!.getMemberById(event.message.author.get().id).block()
+            } catch (e: Exception) {
+                null
+            }
 
             if (member != null) {
                 if (member.basePermissions.block()!!.contains(Permission.MANAGE_GUILD) || cli.applicationInfo.block()!!.ownerId == member.id && event.message.channel.block() is PrivateChannel) {
@@ -190,7 +236,7 @@ fun main() {
 
             val array = json.getJSONArray("data")
 
-            // Storing all the pages of streams
+            // Each run stores the next page in the requestStreams variable
             for (i in 0 until array.length())
                 requestStreams[array.getJSONObject(i).getLong("user_id")] = Stream(array.getJSONObject(i))
 
@@ -207,12 +253,27 @@ fun main() {
                             (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
                         if (blacklist.contains(requestStream.username.toLowerCase())) {
                             log.info("${requestStream.username} went live but was ignored because they are on the blacklist.")
+                            requestStream.offlineTimestamp = -1
                         } else {
                             channel.createMessage(msg).block()
                             log.info("${requestStream.username} is now live.")
+                            if (config.liveRoleId != 0L && streamingPresenceUsers.containsKey(requestStream.username.toLowerCase())) {
+                                cli.getMemberById(
+                                    channel.guildId,
+                                    streamingPresenceUsers[requestStream.username.toLowerCase()]!!
+                                ).subscribe { member ->
+                                    val roles = member.roleIds
+                                    if (roles.contains(Snowflake.of(config.liveRoleRequirementRoleId))) {
+                                        roles.add(Snowflake.of(config.liveRoleId))
+                                        member.edit { spec ->
+                                            spec.setRoles(roles)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                } else requestStream.offlineTimestamp = -1
+                }
             }
 
             if (json.getJSONObject("pagination")!!.has("cursor")) {
@@ -227,6 +288,18 @@ fun main() {
                     if ((!requestStreams.containsKey(stream.userId) || !stream.tags.contains(speedRunTagId)) && stream.offlineTimestamp == -1L) {
                         log.info("${stream.username} is no longer live.")
                         stream.offlineTimestamp = System.currentTimeMillis()
+                        if (config.liveRoleId != 0L && streamingPresenceUsers.containsKey(stream.username.toLowerCase())) {
+                            val channel =
+                                (cli.getChannelById(Snowflake.of(config.broadcastChannelId)).block()!! as TextChannel)
+                            cli.getMemberById(channel.guildId, streamingPresenceUsers[stream.username.toLowerCase()]!!)
+                                .flatMap { member ->
+                                    val roles = member.roleIds
+                                    roles.remove(Snowflake.of(config.liveRoleId))
+                                    member.edit { spec ->
+                                        spec.setRoles(roles)
+                                    }
+                                }.subscribe()
+                        }
                     }
                 }
                 requestStreams.clear()
