@@ -42,9 +42,12 @@ class Stream private constructor(
         }
 
         fun getStream(title: String, username: String, twitchId: Long, tags: ArrayList<String>): Stream {
-            return if (streams.containsKey(twitchId))
-                streams[twitchId]!!
-            else {
+            return if (streams.containsKey(twitchId)) {
+                val stream = streams[twitchId]!!
+                stream.title = title
+                stream.tags = tags
+                stream
+            } else {
                 val stream = Stream(title, username, twitchId, tags)
                 streams[twitchId] = stream
                 stream
