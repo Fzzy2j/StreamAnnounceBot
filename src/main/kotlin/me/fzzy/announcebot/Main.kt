@@ -11,7 +11,6 @@ import discord4j.core.`object`.presence.Presence
 import discord4j.core.`object`.util.Permission
 import discord4j.core.`object`.util.Snowflake
 import discord4j.core.event.domain.PresenceUpdateEvent
-import discord4j.core.event.domain.lifecycle.ReadyEvent
 import discord4j.core.event.domain.message.MessageCreateEvent
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.utils.URIBuilder
@@ -28,12 +27,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
-import java.lang.RuntimeException
 import java.lang.StringBuilder
-import java.time.Instant
-import java.time.temporal.ChronoUnit
-import java.time.temporal.TemporalUnit
-import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
 lateinit var cli: DiscordClient
@@ -62,10 +56,9 @@ var blacklist = arrayListOf<String>()
 val scheduler: Scheduler = Schedulers.elastic()
 val streamingPresenceUsers: HashMap<String, Snowflake> = hashMapOf()
 
-var scanner = StreamScanner()
+//var scanner = StreamScanner()
 
 fun main() {
-
     fun configReq() {
 
         log.error("===================================")
