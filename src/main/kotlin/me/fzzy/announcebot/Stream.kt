@@ -2,8 +2,6 @@ package me.fzzy.announcebot
 
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
-import discord4j.core.`object`.entity.TextChannel
-import discord4j.core.`object`.util.Snowflake
 import org.json.JSONObject
 import java.io.BufferedWriter
 import java.io.File
@@ -23,11 +21,11 @@ class Stream private constructor(
     companion object {
         var streams = hashMapOf<Long, Stream>()
 
-        fun getStream(twitchId: Long): Stream? {
+        fun getStreamByTwitchId(twitchId: Long): Stream? {
             return streams[twitchId]
         }
 
-        fun getStream(userId: Snowflake): Stream? {
+        fun getStream(userId: Long): Stream? {
             for ((username, id) in streamingPresenceUsers) {
                 if (id == userId) return getStream(username)
             }
@@ -112,9 +110,8 @@ class Stream private constructor(
             return
         }
         val msg = "$title https://www.twitch.tv/$username"
-        cli.getChannelById(Snowflake.of(config.broadcastChannelId)).flatMap { channel ->
-            (channel as TextChannel).createMessage(msg)
-        }.subscribe()
+        val channel = cli.getTextChannelById(config.broadcastChannelId)?:return
+        channel.sendMessage(msg).queue()
     }
 
     fun isOnline(): Boolean {
