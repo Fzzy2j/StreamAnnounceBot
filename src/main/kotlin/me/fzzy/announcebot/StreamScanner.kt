@@ -28,6 +28,7 @@ class StreamScanner {
 
             for (i in 0 until array.length()) {
                 val stream = Stream.getStream(array.getJSONObject(i))
+                log.info(stream.username)
                 stream.online()
                 activeStreams[stream.twitchId] = stream
             }

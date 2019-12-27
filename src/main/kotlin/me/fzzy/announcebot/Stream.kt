@@ -44,6 +44,7 @@ class Stream private constructor(
                 val stream = streams[twitchId]!!
                 stream.title = title
                 stream.tags = tags
+                stream.username = username
                 stream
             } else {
                 val stream = Stream(title, username, twitchId, tags)
