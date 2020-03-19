@@ -7,16 +7,26 @@ import org.apache.http.util.EntityUtils
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class StreamScanner {
+class StreamScanner(game: String) {
 
     var activeStreams = hashMapOf<Long, Stream>()
     private var pagination: String? = null
+    var gameId: Int = 0
 
     init {
-        Stream.loadStreams()
-        scheduler.schedulePeriodically({
-            nextPage()
-        }, 10, 60, TimeUnit.SECONDS)
+        try {
+            gameId = getGameIdRequest(game)
+        } catch (e: Exception) {
+            log.error("Could not retrieve game id from twitch, is the game name exactly as it is on the twitch directory?")
+            e.printStackTrace()
+        }
+        if (gameId != 0) {
+            log.info("$game id found: $gameId")
+            Stream.loadStreams()
+            scheduler.schedulePeriodically({
+                nextPage()
+            }, 10, 60, TimeUnit.SECONDS)
+        }
     }
 
     private fun nextPage() {
@@ -28,7 +38,6 @@ class StreamScanner {
 
             for (i in 0 until array.length()) {
                 val stream = Stream.getStream(array.getJSONObject(i))
-                log.info(stream.username)
                 stream.online()
                 activeStreams[stream.twitchId] = stream
             }
@@ -62,5 +71,15 @@ class StreamScanner {
         http.addHeader("Client-ID", config.twitchToken)
         val response = HttpClients.createDefault().execute(http)
         return JSONObject(EntityUtils.toString(response.entity))
+    }
+
+    fun getGameIdRequest(name: String): Int {
+        val uriBuilder = URIBuilder("https://api.twitch.tv/helix/games").addParameter("name", name)
+        val uri = uriBuilder.build()
+        val http = HttpGet(uri)
+        http.addHeader("Client-ID", config.twitchToken)
+        val response = HttpClients.createDefault().execute(http)
+        val json = JSONObject(EntityUtils.toString(response.entity))
+        return json.getJSONArray("data").getJSONObject(0).getInt("id")
     }
 }

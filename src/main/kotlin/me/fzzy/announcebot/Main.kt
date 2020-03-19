@@ -32,7 +32,7 @@ const val speedRunTagId = "7cefbf30-4c3e-4aa7-99cd-70aabb662f27"
 
 class Config {
     val broadcastChannelId = 0L
-    val game = ""
+    val games = arrayListOf<String>()
     val discordToken = ""
     val twitchToken = ""
     val broadcastCooldownMinutes = 60
@@ -44,16 +44,12 @@ class Config {
 
 lateinit var config: Config
 
-var gameId: Int = 0
 var blacklist = arrayListOf<String>()
 val scheduler = Schedulers.elastic()
 val streamingPresenceUsers: HashMap<String, Long> = hashMapOf()
 
-var scanner = StreamScanner()
-
 fun main() {
-    fun configReq() {
-
+    fun configRequest() {
         log.error("===================================")
         log.error("For this bot to work you must set values in config.json, instructions can be found here: https://github.com/Fzzy2j/StreamAnnounceBot")
         log.error("===================================")
@@ -67,7 +63,7 @@ fun main() {
         bufferWriter.write(save.toString(2))
         bufferWriter.close()
 
-        configReq()
+        configRequest()
     }
 
     val blacklistFile = File("blacklist.json")
@@ -78,12 +74,16 @@ fun main() {
 
     try {
         config = gson.fromJson(JsonReader(InputStreamReader(configFile.inputStream())), Config::class.java)
-        if (config.broadcastChannelId == 0L || config.game.isBlank() || config.discordToken.isBlank() || config.twitchToken.isBlank())
-            configReq()
+        if (config.broadcastChannelId == 0L || config.games.isEmpty() || config.discordToken.isBlank() || config.twitchToken.isBlank())
+            configRequest()
     } catch (e: Exception) {
         log.error("Could not load json from config file. Did you edit it improperly?")
         e.printStackTrace()
         exitProcess(0)
+    }
+
+    for (name in config.games) {
+        StreamScanner(name)
     }
 
     val presence = if (config.presence.isEmpty()) null else when (config.presenceType) {
@@ -97,15 +97,6 @@ fun main() {
         .setToken(config.discordToken)
         .addEventListeners(PresenceListener, BlacklistCommand)
         .build()
-
-    gameId = try {
-        getGameIdRequest(config.game)
-    } catch (e: Exception) {
-        log.error("Could not retrieve game id from twitch, is the game name exactly as it is on the twitch directory?")
-        e.printStackTrace()
-        exitProcess(0)
-    }
-    log.info("Game id found: $gameId")
 }
 
 fun handleRole(userId: Long) {
@@ -146,16 +137,6 @@ fun saveBlacklist() {
     val save = JSONArray(gson.toJson(blacklist))
     bufferWriter.write(save.toString(2))
     bufferWriter.close()
-}
-
-fun getGameIdRequest(name: String): Int {
-    val uriBuilder = URIBuilder("https://api.twitch.tv/helix/games").addParameter("name", name)
-    val uri = uriBuilder.build()
-    val http = HttpGet(uri)
-    http.addHeader("Client-ID", config.twitchToken)
-    val response = HttpClients.createDefault().execute(http)
-    val json = JSONObject(EntityUtils.toString(response.entity))
-    return json.getJSONArray("data").getJSONObject(0).getInt("id")
 }
 
 fun getTagRequest(broadcasterId: Long): JSONObject {
