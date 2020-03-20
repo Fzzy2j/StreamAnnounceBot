@@ -47,6 +47,7 @@ lateinit var config: Config
 var blacklist = arrayListOf<String>()
 val scheduler = Schedulers.elastic()
 val streamingPresenceUsers: HashMap<String, Long> = hashMapOf()
+val scanners = arrayListOf<StreamScanner>()
 
 fun main() {
     fun configRequest() {
@@ -83,7 +84,7 @@ fun main() {
     }
 
     for (name in config.games) {
-        StreamScanner(name)
+        scanners.add(StreamScanner(name))
     }
 
     val presence = if (config.presence.isEmpty()) null else when (config.presenceType) {
@@ -102,7 +103,11 @@ fun main() {
 fun handleRole(userId: Long) {
     if (config.liveRoleId == 0L) return
 
-    val isLive = Stream.getStream(userId)?.isOnline() ?: false
+    var isLive = false
+    for (scanner in scanners) {
+        val stream = scanner.getStream(userId)
+        if (stream != null) isLive = true
+    }
     val isStreaming = streamingPresenceUsers.containsValue(userId)
     val channel = cli.getGuildChannelById(config.broadcastChannelId) ?: return
     val member = channel.guild.getMemberById(userId) ?: return

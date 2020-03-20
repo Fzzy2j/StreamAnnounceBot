@@ -8,7 +8,7 @@ import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
 
-class Stream private constructor(
+class Stream constructor(
     var title: String,
     var username: String,
     var twitchId: Long,
@@ -18,79 +18,12 @@ class Stream private constructor(
     private var online: Boolean = false
     private var offlineTimestamp: Long = 0
 
-    companion object {
-        var streams = hashMapOf<Long, Stream>()
-
-        fun getStreamByTwitchId(twitchId: Long): Stream? {
-            return streams[twitchId]
-        }
-
-        fun getStream(userId: Long): Stream? {
-            for ((username, id) in streamingPresenceUsers) {
-                if (id == userId) return getStream(username)
-            }
-            return null
-        }
-
-        fun getStream(username: String): Stream? {
-            for ((_, stream) in streams) {
-                if (stream.username.toLowerCase() == username.toLowerCase()) return stream
-            }
-            return null
-        }
-
-        fun getStream(title: String, username: String, twitchId: Long, tags: ArrayList<String>): Stream {
-            return if (streams.containsKey(twitchId)) {
-                val stream = streams[twitchId]!!
-                stream.title = title
-                stream.tags = tags
-                stream.username = username
-                stream
-            } else {
-                val stream = Stream(title, username, twitchId, tags)
-                streams[twitchId] = stream
-                stream
-            }
-        }
-
-        fun getStream(json: JSONObject): Stream {
-            val title = json.getString("title")
-            val username = json.getString("user_name")
-            val twitchId = json.getLong("user_id")
-            val tags = arrayListOf<String>()
-            try {
-                val jsonTags = json.getJSONArray("tag_ids")
-                for (i in 0 until jsonTags.length()) {
-                    tags.add(jsonTags.getString(i))
-                }
-            } catch (e: Exception) {
-            }
-            return getStream(title, username, twitchId, tags)
-        }
-
-        private val file = File("streams.json")
-
-        private fun saveStreams() {
-            val bufferWriter = BufferedWriter(FileWriter(file.absoluteFile, false))
-            val save = JSONObject(gson.toJson(streams))
-            bufferWriter.write(save.toString(2))
-            bufferWriter.close()
-        }
-
-        fun loadStreams() {
-            val token = object : TypeToken<HashMap<Long, Stream>>() {}
-            if (file.exists())
-                streams = gson.fromJson(JsonReader(InputStreamReader(file.inputStream())), token.type)
-        }
-    }
-
     fun offline() {
         if (!online) return
         online = false
         offlineTimestamp = System.currentTimeMillis()
         log.info("$username is no longer live.")
         handleRole(username)
-        saveStreams()
     }
 
     fun online() {
@@ -100,7 +33,6 @@ class Stream private constructor(
         log.info("$username is now live.")
         broadcastStream()
         handleRole(username)
-        saveStreams()
     }
 
     private fun broadcastStream() {
