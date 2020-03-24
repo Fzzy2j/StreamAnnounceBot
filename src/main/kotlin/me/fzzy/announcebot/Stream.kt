@@ -18,6 +18,8 @@ class Stream constructor(
     private var online: Boolean = false
     private var offlineTimestamp: Long = 0
 
+    var verifiedOnline = false
+
     fun offline() {
         if (!online) return
         online = false
@@ -27,6 +29,7 @@ class Stream constructor(
     }
 
     fun online() {
+        verifiedOnline = true
         if (online) return
         if (!tags.contains(speedRunTagId)) return
         online = true
@@ -37,7 +40,10 @@ class Stream constructor(
 
     private fun broadcastStream() {
         if (!isOnline()) return
-        if (timeSinceOffline() < config.broadcastCooldownMinutes * 60 * 1000) return
+        if (timeSinceOffline() < config.broadcastCooldownMinutes * 60 * 1000) {
+            log.info("$username broadcast ignored because of broadcast cooldown")
+            return
+        }
         if (blacklist.contains(username.toLowerCase())) {
             log.info("$username went live but was ignored because they are on the blacklist.")
             return
@@ -45,6 +51,7 @@ class Stream constructor(
         val msg = "$title https://www.twitch.tv/$username"
         val channel = cli.getTextChannelById(config.broadcastChannelId)?:return
         channel.sendMessage(msg).queue()
+        offlineTimestamp = System.currentTimeMillis()
     }
 
     fun isOnline(): Boolean {

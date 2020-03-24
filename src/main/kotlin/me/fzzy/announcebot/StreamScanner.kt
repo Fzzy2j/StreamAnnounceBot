@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 class StreamScanner(game: String) {
 
-    var activeStreams = hashMapOf<Long, Stream>()
+    var streams = hashMapOf<Long, Stream>()
     private var pagination: String? = null
     var gameId: Int = 0
     private val file = File("$game.json")
@@ -46,7 +46,7 @@ class StreamScanner(game: String) {
             for (i in 0 until array.length()) {
                 val stream = getStream(array.getJSONObject(i))
                 stream.online()
-                activeStreams[stream.twitchId] = stream
+                streams[stream.twitchId] = stream
                 saveStreams()
             }
 
@@ -63,13 +63,13 @@ class StreamScanner(game: String) {
     }
 
     fun markInactiveStreams() {
-        for ((userId, stream) in activeStreams) {
-            if ((!activeStreams.containsKey(userId) || !stream.tags.contains(speedRunTagId))) {
+        for ((_, stream) in streams) {
+            if (!stream.verifiedOnline) {
                 stream.offline()
-                saveStreams()
             }
+            stream.verifiedOnline = false
         }
-        activeStreams.clear()
+        saveStreams()
     }
 
     fun getStreamsRequest(gameId: Int, pagination: String? = null): JSONObject {
@@ -93,7 +93,7 @@ class StreamScanner(game: String) {
     }
 
     fun getStreamByTwitchId(twitchId: Long): Stream? {
-        return activeStreams[twitchId]
+        return streams[twitchId]
     }
 
     fun getStream(userId: Long): Stream? {
@@ -104,22 +104,22 @@ class StreamScanner(game: String) {
     }
 
     fun getStream(username: String): Stream? {
-        for ((_, stream) in activeStreams) {
+        for ((_, stream) in streams) {
             if (stream.username.toLowerCase() == username.toLowerCase()) return stream
         }
         return null
     }
 
     fun getStream(title: String, username: String, twitchId: Long, tags: ArrayList<String>): Stream {
-        return if (activeStreams.containsKey(twitchId)) {
-            val stream = activeStreams[twitchId]!!
+        return if (streams.containsKey(twitchId)) {
+            val stream = streams[twitchId]!!
             stream.title = title
             stream.tags = tags
             stream.username = username
             stream
         } else {
             val stream = Stream(title, username, twitchId, tags)
-            activeStreams[twitchId] = stream
+            streams[twitchId] = stream
             stream
         }
     }
@@ -141,13 +141,13 @@ class StreamScanner(game: String) {
 
     private fun saveStreams() {
         val bufferWriter = BufferedWriter(FileWriter(file.absoluteFile, false))
-        val save = JSONObject(gson.toJson(activeStreams))
+        val save = JSONObject(gson.toJson(streams))
         bufferWriter.write(save.toString(2))
         bufferWriter.close()
     }
 
     fun loadStreams() {
         val token = object : TypeToken<HashMap<Long, Stream>>() {}
-        if (file.exists()) activeStreams = gson.fromJson(JsonReader(InputStreamReader(file.inputStream())), token.type)
+        if (file.exists()) streams = gson.fromJson(JsonReader(InputStreamReader(file.inputStream())), token.type)
     }
 }
