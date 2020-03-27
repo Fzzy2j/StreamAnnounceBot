@@ -37,6 +37,15 @@ class StreamScanner(game: String) {
     }
 
     private fun nextPage() {
+        val iterator = streams.iterator()
+        while(iterator.hasNext()) {
+            val stream = iterator.next()
+
+            if (!stream.value.isOnline() && stream.value.timeSinceOffline() >= config.broadcastCooldownMinutes * 60 * 1000) {
+                log.info("${stream.value.username} is no longer on cooldown")
+                iterator.remove()
+            }
+        }
         var json: JSONObject? = null
         try {
             if (pagination == null) markInactiveStreams()
