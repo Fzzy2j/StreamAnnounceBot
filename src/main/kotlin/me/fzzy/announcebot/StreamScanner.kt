@@ -43,7 +43,7 @@ class StreamScanner(game: String) {
             val stream = iterator.next()
 
             if (!stream.value.isOnline() && stream.value.timeSinceOffline() >= config.broadcastCooldownMinutes * 60 * 1000) {
-                log.info("${stream.value.username} is no longer on cooldown")
+                //log.info("${stream.value.username} is no longer on cooldown")
                 iterator.remove()
             }
         }
