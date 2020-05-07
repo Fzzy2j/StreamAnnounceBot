@@ -11,6 +11,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 class StreamScanner(game: String) {
@@ -32,7 +33,7 @@ class StreamScanner(game: String) {
             loadStreams()
             scheduler.schedulePeriodically({
                 nextPage()
-            }, 10, 60, TimeUnit.SECONDS)
+            }, 10, config.scanIntervalSeconds, TimeUnit.SECONDS)
         }
     }
 
@@ -85,20 +86,13 @@ class StreamScanner(game: String) {
         val uriBuilder = URIBuilder("https://api.twitch.tv/helix/streams").addParameter("game_id", gameId.toString())
         if (pagination != null) uriBuilder.addParameter("after", pagination)
         val uri = uriBuilder.build()
-        val http = HttpGet(uri)
-        http.addHeader("Client-ID", config.twitchToken)
-        val response = HttpClients.createDefault().execute(http)
-        return JSONObject(EntityUtils.toString(response.entity))
+
+        return twitchRequest(uri)
     }
 
     fun getGameIdRequest(name: String): Int {
-        val uriBuilder = URIBuilder("https://api.twitch.tv/helix/games").addParameter("name", name)
-        val uri = uriBuilder.build()
-        val http = HttpGet(uri)
-        http.addHeader("Client-ID", config.twitchToken)
-        val response = HttpClients.createDefault().execute(http)
-        val json = JSONObject(EntityUtils.toString(response.entity))
-        return json.getJSONArray("data").getJSONObject(0).getInt("id")
+        val uri = URIBuilder("https://api.twitch.tv/helix/games").addParameter("name", name).build()
+        return twitchRequest(uri).getJSONArray("data").getJSONObject(0).getInt("id")
     }
 
     fun getStreamByTwitchId(twitchId: Long): Stream? {

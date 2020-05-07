@@ -1,11 +1,16 @@
 package me.fzzy.announcebot
 
+import com.github.scribejava.apis.LinkedInApi20
+import com.github.scribejava.apis.TwitterApi
+import com.github.scribejava.core.builder.ServiceBuilder
+import com.github.scribejava.core.model.OAuth2AccessToken
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
 import net.dv8tion.jda.api.JDA
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.entities.Activity
+import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.utils.URIBuilder
 import org.apache.http.impl.client.HttpClients
@@ -19,6 +24,7 @@ import java.io.File
 import java.io.FileWriter
 import java.io.InputStreamReader
 import java.lang.StringBuilder
+import java.net.URI
 import java.util.*
 import kotlin.collections.HashMap
 import kotlin.system.exitProcess
@@ -34,12 +40,14 @@ class Config {
     val broadcastChannelId = 0L
     val games = arrayListOf<String>()
     val discordToken = ""
-    val twitchToken = ""
+    val twitchClientId = ""
+    val twitchClientSecret = ""
     val broadcastCooldownMinutes = 60
     val presence = ""
     val presenceType = 0
     val liveRoleId = 0L
     val liveRoleRequirementRoleId = 0L
+    val scanIntervalSeconds = 30L
 }
 
 lateinit var config: Config
@@ -48,6 +56,35 @@ var blacklist = arrayListOf<String>()
 val scheduler = Schedulers.elastic()
 val streamingPresenceUsers: HashMap<String, Long> = hashMapOf()
 val scanners = arrayListOf<StreamScanner>()
+
+var oauthToken: OAuth2AccessToken? = null
+
+fun twitchRequest(url: URI): JSONObject {
+    if (oauthToken == null) requestNewToken()
+
+    fun request(): CloseableHttpResponse {
+        val http = HttpGet(url)
+        val authorization = String.format("Bearer %s", oauthToken!!.accessToken)
+        http.addHeader("Authorization", authorization)
+        http.addHeader("Client-ID",config.twitchClientId)
+
+        return HttpClients.createDefault().execute(http)
+    }
+    var response = request()
+    if (response.statusLine.statusCode == 401) {
+        log.info("Requesting new oauth token.")
+        requestNewToken()
+        response = request()
+    }
+    return JSONObject(EntityUtils.toString(response.entity))
+}
+
+private fun requestNewToken() {
+    val service = ServiceBuilder(config.twitchClientId).apiSecret(config.twitchClientSecret)
+        .build(TwitchApi.instance)
+
+    oauthToken = service.accessTokenClientCredentialsGrant
+}
 
 fun main() {
     fun configRequest() {
@@ -75,7 +112,7 @@ fun main() {
 
     try {
         config = gson.fromJson(JsonReader(InputStreamReader(configFile.inputStream())), Config::class.java)
-        if (config.broadcastChannelId == 0L || config.games.isEmpty() || config.discordToken.isBlank() || config.twitchToken.isBlank())
+        if (config.broadcastChannelId == 0L || config.games.isEmpty() || config.discordToken.isBlank() || config.twitchClientId.isBlank() || config.twitchClientSecret.isBlank())
             configRequest()
     } catch (e: Exception) {
         log.error("Could not load json from config file. Did you edit it improperly?")
@@ -142,16 +179,4 @@ fun saveBlacklist() {
     val save = JSONArray(gson.toJson(blacklist))
     bufferWriter.write(save.toString(2))
     bufferWriter.close()
-}
-
-fun getTagRequest(broadcasterId: Long): JSONObject {
-    val uriBuilder = URIBuilder("https://api.twitch.tv/helix/streams/tags").addParameter(
-        "broadcaster_id",
-        broadcasterId.toString()
-    )
-    val uri = uriBuilder.build()
-    val http = HttpGet(uri)
-    http.addHeader("Client-ID", config.twitchToken)
-    val response = HttpClients.createDefault().execute(http)
-    return JSONObject(EntityUtils.toString(response.entity))
 }

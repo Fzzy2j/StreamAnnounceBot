@@ -32,7 +32,7 @@ dependencies {
     implementation("club.minnced:jda-reactor:0.2.8")
     compile 'com.google.code.gson:gson:2.8.5'
     compile group: 'org.json', name: 'json', version: '20180813'
-
+    implementation 'com.github.scribejava:scribejava-apis:6.4.1'
 }
 
 compileKotlin {
