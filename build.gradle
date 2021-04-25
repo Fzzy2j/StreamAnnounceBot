@@ -28,11 +28,12 @@ dependencies {
     compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
     compile group: 'org.slf4j', name: 'slf4j-simple', version: '1.7.25'
     compile group: 'ch.qos.logback', name: 'logback-classic', version: '1.3.0-alpha4'
-    compile 'net.dv8tion:JDA:4.0.0_52'
-    implementation("club.minnced:jda-reactor:0.2.8")
+    compile 'net.dv8tion:JDA:4.2.0_227'
+    implementation("club.minnced:jda-reactor:1.2.0")
     compile 'com.google.code.gson:gson:2.8.5'
     compile group: 'org.json', name: 'json', version: '20180813'
     implementation 'com.github.scribejava:scribejava-apis:6.4.1'
+    compile group: 'net.sourceforge.tess4j', name: 'tess4j', version: '4.5.3'
 }
 
 compileKotlin {

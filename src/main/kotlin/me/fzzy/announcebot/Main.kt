@@ -7,9 +7,15 @@ import com.github.scribejava.core.model.OAuth2AccessToken
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
+import com.tsunderebug.speedrun4j.game.Category
+import com.tsunderebug.speedrun4j.game.Game
+import com.tsunderebug.speedrun4j.game.GameList
+import com.tsunderebug.speedrun4j.game.Leaderboard
 import net.dv8tion.jda.api.JDA
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.entities.Activity
+import net.dv8tion.jda.api.requests.GatewayIntent
+import net.dv8tion.jda.api.utils.MemberCachePolicy
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.utils.URIBuilder
@@ -19,13 +25,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import reactor.core.scheduler.Schedulers
 import reactor.util.Loggers
-import java.io.BufferedWriter
-import java.io.File
-import java.io.FileWriter
-import java.io.InputStreamReader
+import java.io.*
 import java.lang.StringBuilder
+import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URL
 import java.util.*
+import java.util.concurrent.TimeUnit
 import kotlin.collections.HashMap
 import kotlin.system.exitProcess
 
@@ -48,6 +54,8 @@ class Config {
     val liveRoleId = 0L
     val liveRoleRequirementRoleId = 0L
     val scanIntervalSeconds = 30L
+    val topRoles = hashMapOf<Int, Long>()
+    val runnerRole = 0L
 }
 
 lateinit var config: Config
@@ -56,6 +64,7 @@ var blacklist = arrayListOf<String>()
 val scheduler = Schedulers.elastic()
 val streamingPresenceUsers: HashMap<String, Long> = hashMapOf()
 val scanners = arrayListOf<StreamScanner>()
+val roleUpdater = RoleUpdater()
 
 var oauthToken: OAuth2AccessToken? = null
 
@@ -66,10 +75,11 @@ fun twitchRequest(url: URI): JSONObject {
         val http = HttpGet(url)
         val authorization = String.format("Bearer %s", oauthToken!!.accessToken)
         http.addHeader("Authorization", authorization)
-        http.addHeader("Client-ID",config.twitchClientId)
+        http.addHeader("Client-ID", config.twitchClientId)
 
         return HttpClients.createDefault().execute(http)
     }
+
     var response = request()
     if (response.statusLine.statusCode == 401) {
         log.info("Requesting new oauth token.")
@@ -124,16 +134,19 @@ fun main() {
         scanners.add(StreamScanner(name))
     }
 
+    roleUpdater.start()
+
     val presence = if (config.presence.isEmpty()) null else when (config.presenceType) {
         0 -> Activity.playing(config.presence)
         1 -> Activity.listening(config.presence)
         2 -> Activity.watching(config.presence)
         else -> null
     }
-    cli = JDABuilder()
+    cli = JDABuilder.createDefault(config.discordToken)
+        .setMemberCachePolicy(MemberCachePolicy.ALL)
+        .enableIntents(GatewayIntent.GUILD_MEMBERS)
         .setActivity(presence)
-        .setToken(config.discordToken)
-        .addEventListeners(PresenceListener, BlacklistCommand)
+        .addEventListeners(PresenceListener, BlacklistCommand, Race)
         .build()
 }
 

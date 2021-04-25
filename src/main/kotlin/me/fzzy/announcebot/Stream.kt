@@ -1,13 +1,5 @@
 package me.fzzy.announcebot
 
-import com.google.gson.reflect.TypeToken
-import com.google.gson.stream.JsonReader
-import org.json.JSONObject
-import java.io.BufferedWriter
-import java.io.File
-import java.io.FileWriter
-import java.io.InputStreamReader
-
 class Stream constructor(
     var title: String,
     var username: String,
@@ -32,6 +24,12 @@ class Stream constructor(
         verifiedOnline = true
         if (online) return
         if (!tags.contains(speedRunTagId)) return
+        //if (!title.contains("pugs")
+            //&& !title.contains("pickup games")
+            //&& !title.contains("scrims")) return
+            //&& !title.contains("tournament")
+            //&& !title.contains("tourney")
+            //&& !title.contains("tourny")) return
         online = true
         log.info("$username is now live.")
         broadcastStream()
