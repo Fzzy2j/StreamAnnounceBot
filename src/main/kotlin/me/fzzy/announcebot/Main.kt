@@ -134,7 +134,7 @@ fun main() {
         scanners.add(StreamScanner(name))
     }
 
-    roleUpdater.start()
+    //roleUpdater.start()
 
     val presence = if (config.presence.isEmpty()) null else when (config.presenceType) {
         0 -> Activity.playing(config.presence)
@@ -143,8 +143,8 @@ fun main() {
         else -> null
     }
     cli = JDABuilder.createDefault(config.discordToken)
-        .setMemberCachePolicy(MemberCachePolicy.ALL)
-        .enableIntents(GatewayIntent.GUILD_MEMBERS)
+        //.setMemberCachePolicy(MemberCachePolicy.ALL)
+        //.enableIntents(GatewayIntent.GUILD_MEMBERS)
         .setActivity(presence)
         .addEventListeners(PresenceListener, BlacklistCommand, Race)
         .build()
